@@ -7,7 +7,10 @@
     "git-patch": "./bin/git-patch.js"
   },
   "scripts": {
-    "test": "node --test test/*.test.js"
+    "test": "node --test test/*.test.js",
+    "lint": "biome check .",
+    "format": "biome format --write .",
+    "lint:fix": "biome check --write ."
   },
   "engines": {
     "node": ">=22.0.0"
@@ -20,5 +23,8 @@
     "patch",
     "llm",
     "cli"
-  ]
+  ],
+  "devDependencies": {
+    "@biomejs/biome": "^2.4.4"
+  }
 }
