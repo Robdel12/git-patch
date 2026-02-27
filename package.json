@@ -6,6 +6,9 @@
   "bin": {
     "git-patch": "./bin/git-patch.js"
   },
+  "scripts": {
+    "test": "node --test test/*.test.js"
+  },
   "engines": {
     "node": ">=22.0.0"
   },
