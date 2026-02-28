@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, before, beforeEach, describe, it } from "node:test";
@@ -21,6 +21,31 @@ function gp(args, opts = {}) {
     },
     ...opts,
   }).trim();
+}
+
+function gpResult(args, opts = {}) {
+  try {
+    let stdout = execSync(`node ${bin} ${args}`, {
+      cwd: tmp,
+      encoding: "utf-8",
+      env: {
+        ...process.env,
+        GIT_AUTHOR_NAME: "Test",
+        GIT_AUTHOR_EMAIL: "test@test.com",
+        GIT_COMMITTER_NAME: "Test",
+        GIT_COMMITTER_EMAIL: "test@test.com",
+      },
+      stdio: ["pipe", "pipe", "pipe"],
+      ...opts,
+    }).trim();
+    return { status: 0, stdout, stderr: "" };
+  } catch (error) {
+    return {
+      status: error.status ?? 1,
+      stdout: String(error.stdout || "").trim(),
+      stderr: String(error.stderr || "").trim(),
+    };
+  }
 }
 
 function git(args) {
@@ -86,8 +111,8 @@ describe("git-patch integration", () => {
 
   // Reset to clean state before each test
   beforeEach(() => {
-    git("checkout -- .");
-    git("reset HEAD -- .");
+    git("reset --hard HEAD");
+    git("clean -fd");
   });
 
   describe("list", () => {
@@ -257,9 +282,181 @@ describe("git-patch integration", () => {
       assert.equal(out.files.length, 1);
       assert.equal(out.files[0].file, "src/utils.js");
     });
+
+    it("summarizes a newly added file with zero old range", () => {
+      writeFile("src/new-summary.js", "module.exports = 1;\n");
+      git("add src/new-summary.js");
+
+      let out = JSON.parse(gp("list --staged --json --summary"));
+      let hunk = out.hunks.find((h) => h.file === "src/new-summary.js");
+      assert.ok(hunk);
+      assert.equal(hunk.oldRange.count, 0);
+      assert.equal(hunk.oldRange.end, 0);
+    });
+
+    it("summarizes a deleted file with zero new range", () => {
+      rmSync(join(tmp, "src/utils.js"));
+
+      let out = JSON.parse(gp("list --json --summary"));
+      let hunk = out.hunks.find((h) => h.file === "src/utils.js");
+      assert.ok(hunk);
+      assert.equal(hunk.newRange.count, 0);
+      assert.equal(hunk.newRange.end, 0);
+    });
+
+    it("prints hunk context when git provides it", () => {
+      let fakeBin = join(tmp, "fake-bin");
+      mkdirSync(fakeBin, { recursive: true });
+
+      let fakeGit = join(fakeBin, "git");
+      writeFileSync(
+        fakeGit,
+        [
+          "#!/bin/sh",
+          'if [ \"$1\" = \"diff\" ]; then',
+          "cat <<'EOF'",
+          "diff --git a/demo.js b/demo.js",
+          "index 1111111..2222222 100644",
+          "--- a/demo.js",
+          "+++ b/demo.js",
+          "@@ -1 +1 @@ function demo()",
+          "-old",
+          "+new",
+          "EOF",
+          "exit 0",
+          "fi",
+          'echo \"unsupported command\" >&2',
+          "exit 1",
+          "",
+        ].join("\n"),
+      );
+      chmodSync(fakeGit, 0o755);
+
+      let out = gp("list", {
+        env: {
+          ...process.env,
+          PATH: `${fakeBin}:${process.env.PATH}`,
+        },
+      });
+      assert.match(out, /function demo\(\)/);
+    });
+  });
+
+  describe("cli", () => {
+    it("shows usage for --help", () => {
+      let out = gp("--help");
+      assert.match(out, /Usage:/);
+      assert.match(out, /Selectors:/);
+    });
+
+    it("fails with usage for unknown command", () => {
+      let result = gpResult("nope");
+      assert.equal(result.status, 1);
+      assert.match(result.stderr, /Unknown command: nope/);
+      assert.match(result.stdout, /Usage:/);
+    });
+
+    it("fails with parse error for unknown flags", () => {
+      let result = gpResult("list --wat");
+      assert.equal(result.status, 1);
+      assert.match(result.stderr, /Unknown option '--wat'/);
+    });
+
+    it("fails when selector is missing", () => {
+      writeFile(
+        "src/app.js",
+        [
+          "function greet(name) {",
+          '  return "Hi, " + name;',
+          "}",
+          "",
+          "function farewell(name) {",
+          '  return "Goodbye, " + name;',
+          "}",
+          "",
+          "module.exports = { greet, farewell };",
+          "",
+        ].join("\n"),
+      );
+
+      let result = gpResult("stage");
+      assert.equal(result.status, 1);
+      assert.match(result.stderr, /No selector provided/);
+    });
+
+    it("fails on invalid selector", () => {
+      writeFile(
+        "src/app.js",
+        [
+          "function greet(name) {",
+          '  return "Hi, " + name;',
+          "}",
+          "",
+          "function farewell(name) {",
+          '  return "Goodbye, " + name;',
+          "}",
+          "",
+          "module.exports = { greet, farewell };",
+          "",
+        ].join("\n"),
+      );
+
+      let result = gpResult("stage abc");
+      assert.equal(result.status, 1);
+      assert.match(result.stderr, /Invalid number: abc/);
+    });
+
+    it("fails on invalid line-level hunk ID", () => {
+      writeFile(
+        "src/app.js",
+        [
+          "function greet(name) {",
+          '  return "Hi, " + name;',
+          "}",
+          "",
+          "function farewell(name) {",
+          '  return "Goodbye, " + name;',
+          "}",
+          "",
+          "module.exports = { greet, farewell };",
+          "",
+        ].join("\n"),
+      );
+
+      let result = gpResult("stage x:1");
+      assert.equal(result.status, 1);
+      assert.match(result.stderr, /Invalid hunk ID: x/);
+    });
+
+    it("fails on invalid selector range", () => {
+      writeFile(
+        "src/app.js",
+        [
+          "function greet(name) {",
+          '  return "Hi, " + name;',
+          "}",
+          "",
+          "function farewell(name) {",
+          '  return "Goodbye, " + name;',
+          "}",
+          "",
+          "module.exports = { greet, farewell };",
+          "",
+        ].join("\n"),
+      );
+
+      let result = gpResult("stage 1-a");
+      assert.equal(result.status, 1);
+      assert.match(result.stderr, /Invalid range: 1-a/);
+    });
   });
 
   describe("stage", () => {
+    it("reports when there are no unstaged changes", () => {
+      let out = gp("stage --all");
+      assert.equal(out, "No unstaged changes to stage.");
+    });
+
     it("stages a single hunk by ID", () => {
       // Use two separate files so each gets its own hunk
       writeFile(
@@ -432,9 +629,81 @@ describe("git-patch integration", () => {
       let content = staged.files[0].hunks[0].lines.map((l) => l.content).join("\n");
       assert.match(content, /See ya/);
     });
+
+    it("reports when --matching finds nothing", () => {
+      writeFile(
+        "src/app.js",
+        [
+          "function greet(name) {",
+          '  return "Hi, " + name;',
+          "}",
+          "",
+          "function farewell(name) {",
+          '  return "See ya, " + name;',
+          "}",
+          "",
+          "module.exports = { greet, farewell };",
+          "",
+        ].join("\n"),
+      );
+
+      let out = gp('stage --matching "definitely-no-match"');
+      assert.equal(out, "No hunks matching /definitely-no-match/.");
+    });
+
+    it("parses no-newline markers without crashing", () => {
+      writeFile(
+        "src/app.js",
+        [
+          "function greet(name) {",
+          '  return "Hello, " + name;',
+          "}",
+          "",
+          "function farewell(name) {",
+          '  return "Goodbye, " + name;',
+          "}",
+          "",
+          "module.exports = { greet, farewell };",
+        ].join("\n"),
+      );
+
+      writeFile(
+        "src/app.js",
+        [
+          "function greet(name) {",
+          '  return "Hi, " + name;',
+          "}",
+          "",
+          "function farewell(name) {",
+          '  return "Goodbye, " + name;',
+          "}",
+          "",
+          "module.exports = { greet, farewell };",
+        ].join("\n"),
+      );
+
+      gp("stage 1");
+      let staged = gp("list --staged");
+      assert.match(staged, /src\/app\.js/);
+    });
+
+    it("stages file deletions without creating dev/null in index", () => {
+      rmSync(join(tmp, "src/utils.js"));
+
+      gp("stage --all");
+
+      let stagedNames = git("diff --cached --name-status");
+      assert.equal(stagedNames, "D\tsrc/utils.js");
+      assert.doesNotMatch(stagedNames, /dev\/null/);
+    });
   });
 
   describe("unstage", () => {
+    it("reports when there are no staged changes", () => {
+      let out = gp("unstage --all");
+      assert.equal(out, "No staged changes to unstage.");
+    });
+
     it("unstages a single hunk", () => {
       writeFile(
         "src/app.js",
@@ -484,6 +753,90 @@ describe("git-patch integration", () => {
 
       let staged = gp("list --staged");
       assert.equal(staged, "No staged changes.");
+    });
+
+    it("unstages hunks matching a regex", () => {
+      writeFile(
+        "src/app.js",
+        [
+          "function greet(name) {",
+          '  return "Hi, " + name;',
+          "}",
+          "",
+          "function farewell(name) {",
+          '  return "See ya, " + name;',
+          "}",
+          "",
+          "module.exports = { greet, farewell };",
+          "",
+        ].join("\n"),
+      );
+
+      gp("stage --all");
+      let out = gp('unstage --matching "See ya"');
+      assert.equal(out, "Unstaging 1 hunk(s) matching /See ya/");
+    });
+
+    it("reports when unstage --matching finds nothing", () => {
+      writeFile(
+        "src/app.js",
+        [
+          "function greet(name) {",
+          '  return "Hi, " + name;',
+          "}",
+          "",
+          "function farewell(name) {",
+          '  return "See ya, " + name;',
+          "}",
+          "",
+          "module.exports = { greet, farewell };",
+          "",
+        ].join("\n"),
+      );
+
+      gp("stage --all");
+      let out = gp('unstage --matching "definitely-no-match"');
+      assert.equal(out, "No staged hunks matching /definitely-no-match/.");
+    });
+
+    it("unstages specific lines within a hunk", () => {
+      writeFile(
+        "src/app.js",
+        [
+          "function greet(name) {",
+          '  return "Hi, " + name;',
+          "}",
+          "",
+          "function farewell(name) {",
+          '  return "See ya, " + name;',
+          "}",
+          "",
+          "module.exports = { greet, farewell };",
+          "",
+        ].join("\n"),
+      );
+
+      gp("stage 1:2");
+      let out = gp("unstage 1:1");
+      assert.equal(out, "Unstaged successfully.");
+
+      let staged = gp("list --staged");
+      assert.equal(staged, "No staged changes.");
+    });
+
+    it("unstages newly-added files without creating dev/null in index", () => {
+      writeFile("src/new-file.js", 'module.exports = "new";\n');
+      git("add src/new-file.js");
+
+      gp("unstage --all");
+
+      let stagedNames = git("diff --cached --name-status");
+      let porcelain = git("status --porcelain");
+      assert.equal(stagedNames, "");
+      assert.match(porcelain, /\?\? src\/new-file\.js/);
+      assert.doesNotMatch(porcelain, /dev\/null/);
+
+      rmSync(join(tmp, "src/new-file.js"), { force: true });
     });
   });
 
@@ -620,6 +973,99 @@ describe("git-patch integration", () => {
       assert.match(content, /Hello/);
       assert.doesNotMatch(content, /Hi/);
     });
+
+    it("reports when there is nothing to discard", () => {
+      let out = gp("discard --all --yes");
+      assert.equal(out, "No unstaged changes to discard.");
+    });
+
+    it("discards all changes with --all --yes", () => {
+      writeFile(
+        "src/app.js",
+        [
+          "function greet(name) {",
+          '  return "Hi, " + name;',
+          "}",
+          "",
+          "function farewell(name) {",
+          '  return "See ya, " + name;',
+          "}",
+          "",
+          "module.exports = { greet, farewell };",
+          "",
+        ].join("\n"),
+      );
+
+      gp("discard --all --yes");
+      let out = gp("list");
+      assert.equal(out, "No unstaged changes.");
+    });
+
+    it("discards hunks matching a regex", () => {
+      writeFile(
+        "src/app.js",
+        [
+          "function greet(name) {",
+          '  return "Hello, " + name;',
+          "}",
+          "",
+          "function farewell(name) {",
+          '  return "See ya, " + name;',
+          "}",
+          "",
+          "module.exports = { greet, farewell };",
+          "",
+        ].join("\n"),
+      );
+
+      gp('discard --matching "See ya" --yes');
+      let content = readFile("src/app.js");
+      assert.match(content, /Goodbye/);
+      assert.match(content, /Hello/);
+    });
+
+    it("reports when discard --matching finds nothing", () => {
+      writeFile(
+        "src/app.js",
+        [
+          "function greet(name) {",
+          '  return "Hi, " + name;',
+          "}",
+          "",
+          "function farewell(name) {",
+          '  return "See ya, " + name;',
+          "}",
+          "",
+          "module.exports = { greet, farewell };",
+          "",
+        ].join("\n"),
+      );
+
+      let out = gp('discard --matching "definitely-no-match" --yes');
+      assert.equal(out, "No hunks matching /definitely-no-match/.");
+    });
+
+    it("discards specific lines within a hunk", () => {
+      writeFile(
+        "src/app.js",
+        [
+          "function greet(name) {",
+          '  return "Hi, " + name;',
+          "}",
+          "",
+          "function farewell(name) {",
+          '  return "See ya, " + name;',
+          "}",
+          "",
+          "module.exports = { greet, farewell };",
+          "",
+        ].join("\n"),
+      );
+
+      let out = gp("discard 1:2 --dry-run");
+      assert.match(out, /Dry run/);
+      assert.match(out, /@@/);
+    });
   });
 
   describe("status", () => {
@@ -686,6 +1132,12 @@ describe("git-patch integration", () => {
       assert.equal(out.unstaged.hunks, 1);
       assert.equal(out.unstaged.files, 1);
       assert.equal(out.staged.hunks, 0);
+    });
+
+    it("lists untracked files in per-file output", () => {
+      writeFile("src/untracked.js", "module.exports = 1;\n");
+      let out = gp("status");
+      assert.match(out, /src\/untracked\.js\s+untracked/);
     });
   });
 
