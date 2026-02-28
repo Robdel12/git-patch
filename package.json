@@ -8,7 +8,7 @@
   },
   "scripts": {
     "test": "node --test test/*.test.js",
-    "test:coverage": "node --test --experimental-test-coverage --test-coverage-lines=100 --test-coverage-functions=100 --test-coverage-branches=100 test/*.test.js",
+    "test:coverage": "node --test --experimental-test-coverage --test-coverage-lines=100 --test-coverage-functions=100 --test-coverage-branches=100 '--test-coverage-include=bin/*.js' '--test-coverage-include=lib/**/*.js' test/*.test.js",
     "lint": "biome check .",
     "format": "biome format --write .",
     "lint:fix": "biome check --write ."
