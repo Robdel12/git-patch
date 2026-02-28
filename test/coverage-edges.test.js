@@ -56,6 +56,21 @@ describe("coverage edges", () => {
     assert.throws(() => parseSelector("1:1-a"), /Invalid range: 1-a/);
   });
 
+  it("throws for mixed hunk and line selectors", () => {
+    assert.throws(() => parseSelector("1,2:3"), /Invalid hunk ID: 1,2/);
+  });
+
+  it("throws for partially numeric selector tokens", () => {
+    assert.throws(() => parseSelector("1x"), /Invalid number: 1x/);
+    assert.throws(() => parseSelector("1-2x"), /Invalid range: 1-2x/);
+    assert.throws(() => parseSelector("1:2,3x"), /Invalid number: 3x/);
+  });
+
+  it("throws for empty selector segments and descending ranges", () => {
+    assert.throws(() => parseSelector("1,,2"), /Invalid number: /);
+    assert.throws(() => parseSelector("3-1"), /Invalid range: 3-1/);
+  });
+
   it("finds line-level hunks across multiple files", () => {
     let patch = buildPatchFromLines(
       [

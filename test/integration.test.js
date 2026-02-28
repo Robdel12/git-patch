@@ -435,6 +435,28 @@ describe("git-patch integration", () => {
       assert.match(result.stderr, /Invalid hunk ID: x/);
     });
 
+    it("fails on mixed hunk and line selectors", () => {
+      writeFile(
+        "src/app.js",
+        [
+          "function greet(name) {",
+          '  return "Hi, " + name;',
+          "}",
+          "",
+          "function farewell(name) {",
+          '  return "Goodbye, " + name;',
+          "}",
+          "",
+          "module.exports = { greet, farewell };",
+          "",
+        ].join("\\n"),
+      );
+
+      let result = gpResult("stage 1,2:3");
+      assert.equal(result.status, 1);
+      assert.match(result.stderr, /Invalid hunk ID: 1,2/);
+    });
+
     it("fails on invalid selector range", () => {
       writeFile(
         "src/app.js",
