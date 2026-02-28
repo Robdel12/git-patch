@@ -22,7 +22,9 @@ npx git-patch list
 
 ```bash
 git-patch list                    # Human-readable hunk list
+git-patch list --summary          # One line per hunk (id + file/range + counts)
 git-patch list --json             # Structured JSON output
+git-patch list --json --summary   # Flat hunk summaries for scripts/LLMs
 git-patch list --staged           # Show staged hunks
 git-patch list -- src/main.rs     # Filter to specific files
 ```

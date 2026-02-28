@@ -119,6 +119,30 @@ describe("git-patch integration", () => {
       assert.match(out, /-.*Hello/);
     });
 
+    it("lists only hunk headers with --summary", () => {
+      writeFile(
+        "src/app.js",
+        [
+          "function greet(name) {",
+          '  return "Hi, " + name;',
+          "}",
+          "",
+          "function farewell(name) {",
+          '  return "Goodbye, " + name;',
+          "}",
+          "",
+          "module.exports = { greet, farewell };",
+          "",
+        ].join("\n"),
+      );
+
+      let out = gp("list --summary");
+      assert.match(out, /Unstaged changes/);
+      assert.match(out, /src\/app\.js/);
+      assert.doesNotMatch(out, /return "Hi, "/);
+      assert.doesNotMatch(out, /return "Hello, "/);
+    });
+
     it("outputs valid JSON with --json", () => {
       writeFile(
         "src/utils.js",
@@ -142,6 +166,35 @@ describe("git-patch integration", () => {
       assert.equal(out.files[0].file, "src/utils.js");
       assert.ok(out.files[0].hunks.length > 0);
       assert.equal(out.files[0].hunks[0].id, 1);
+    });
+
+    it("outputs hunk summaries with --json --summary", () => {
+      writeFile(
+        "src/app.js",
+        [
+          "function greet(name) {",
+          '  return "Hi, " + name;',
+          "}",
+          "",
+          "function farewell(name) {",
+          '  return "Goodbye, " + name;',
+          "}",
+          "",
+          "module.exports = { greet, farewell };",
+          "",
+        ].join("\n"),
+      );
+
+      let out = JSON.parse(gp("list --json --summary"));
+      assert.equal(out.type, "unstaged");
+      assert.equal(out.hunks.length, 1);
+      assert.equal(out.hunks[0].id, 1);
+      assert.equal(out.hunks[0].file, "src/app.js");
+      assert.equal(out.hunks[0].addedCount, 1);
+      assert.equal(out.hunks[0].removedCount, 1);
+      assert.ok(out.hunks[0].range.startsWith("src/app.js:"));
+      assert.equal(out.hunks[0].oldRange.start, 1);
+      assert.equal(out.hunks[0].newRange.start, 1);
     });
 
     it("lists staged hunks with --staged", () => {

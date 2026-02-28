@@ -10,7 +10,7 @@ function usage() {
   console.log(`git-patch — Non-interactive hunk staging for LLMs
 
 Usage:
-  git-patch list [--json] [--staged] [-- files...]
+  git-patch list [--json] [--summary] [--staged] [-- files...]
   git-patch stage <selector> [--all] [--matching <regex>] [-- files...]
   git-patch unstage <selector> [--all] [--matching <regex>]
   git-patch discard <selector> [--all] [--matching <regex>] [--yes] [--dry-run] [-- files...]
@@ -39,12 +39,13 @@ try {
         args,
         options: {
           json: { type: "boolean", default: false },
+          summary: { type: "boolean", default: false },
           staged: { type: "boolean", default: false },
         },
         strict: true,
       });
       let { run } = await import("../lib/commands/list.js");
-      run({ json: values.json, staged: values.staged, files });
+      run({ json: values.json, summary: values.summary, staged: values.staged, files });
       break;
     }
 
