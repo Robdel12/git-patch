@@ -7,6 +7,12 @@ import { after, before, beforeEach, describe, it } from "node:test";
 
 let tmp;
 let bin = join(import.meta.dirname, "..", "bin", "git-patch.js");
+let gitIdentityEnv = {
+  GIT_AUTHOR_NAME: "Test",
+  GIT_AUTHOR_EMAIL: "test@test.com",
+  GIT_COMMITTER_NAME: "Test",
+  GIT_COMMITTER_EMAIL: "test@test.com",
+};
 
 function gp(args, opts = {}) {
   return execSync(`node ${bin} ${args}`, {
@@ -14,10 +20,7 @@ function gp(args, opts = {}) {
     encoding: "utf-8",
     env: {
       ...process.env,
-      GIT_AUTHOR_NAME: "Test",
-      GIT_AUTHOR_EMAIL: "test@test.com",
-      GIT_COMMITTER_NAME: "Test",
-      GIT_COMMITTER_EMAIL: "test@test.com",
+      ...gitIdentityEnv,
     },
     ...opts,
   }).trim();
@@ -30,10 +33,7 @@ function gpResult(args, opts = {}) {
       encoding: "utf-8",
       env: {
         ...process.env,
-        GIT_AUTHOR_NAME: "Test",
-        GIT_AUTHOR_EMAIL: "test@test.com",
-        GIT_COMMITTER_NAME: "Test",
-        GIT_COMMITTER_EMAIL: "test@test.com",
+        ...gitIdentityEnv,
       },
       stdio: ["pipe", "pipe", "pipe"],
       ...opts,
@@ -49,7 +49,14 @@ function gpResult(args, opts = {}) {
 }
 
 function git(args) {
-  return execSync(`git ${args}`, { cwd: tmp, encoding: "utf-8" }).trim();
+  return execSync(`git ${args}`, {
+    cwd: tmp,
+    encoding: "utf-8",
+    env: {
+      ...process.env,
+      ...gitIdentityEnv,
+    },
+  }).trim();
 }
 
 function writeFile(name, content) {
