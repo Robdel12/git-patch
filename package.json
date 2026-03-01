@@ -1,6 +1,6 @@
 {
   "name": "git-patch",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "Non-interactive hunk staging for LLMs — stage, unstage, and discard git changes by hunk or line",
   "type": "module",
   "bin": {
