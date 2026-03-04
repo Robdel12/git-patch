@@ -29,6 +29,8 @@ git-patch list --staged           # Show staged hunks
 git-patch list -- src/main.rs     # Filter to specific files
 ```
 
+Untracked files are included in unstaged output, so brand new files get hunk IDs without needing `git add -N`.
+
 Each hunk gets a sequential ID. Change lines within each hunk are numbered too — these are what you use for line-level selection.
 
 ### Stage hunks
@@ -42,6 +44,8 @@ git-patch stage 1:3,5,8           # Stage specific lines of hunk 1
 git-patch stage --all             # Stage everything
 git-patch stage --matching "TODO" # Stage hunks matching a regex
 ```
+
+This also works for untracked files directly; no intent-to-add prep step required.
 
 ### Unstage hunks
 

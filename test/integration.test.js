@@ -200,6 +200,45 @@ describe("git-patch integration", () => {
       assert.equal(out.files[0].hunks[0].id, 1);
     });
 
+    it("lists untracked files as unstaged hunks", () => {
+      writeFile(
+        "src/new-untracked.js",
+        ['module.exports = "new";', "module.exports += '!';", ""].join("\n"),
+      );
+
+      let out = JSON.parse(gp("list --json"));
+      assert.equal(out.type, "unstaged");
+      assert.equal(out.files.length, 1);
+      assert.equal(out.files[0].file, "src/new-untracked.js");
+      assert.equal(out.files[0].hunks.length, 1);
+      assert.equal(out.files[0].hunks[0].oldStart, 0);
+      assert.equal(out.files[0].hunks[0].oldCount, 0);
+      assert.equal(out.files[0].hunks[0].addedCount, 2);
+    });
+
+    it("lists tracked and untracked hunks together", () => {
+      writeFile(
+        "src/app.js",
+        [
+          "function greet(name) {",
+          '  return "Hi, " + name;',
+          "}",
+          "",
+          "function farewell(name) {",
+          '  return "Goodbye, " + name;',
+          "}",
+          "",
+          "module.exports = { greet, farewell };",
+          "",
+        ].join("\n"),
+      );
+      writeFile("src/added.js", "module.exports = 1;\n");
+
+      let out = JSON.parse(gp("list --json"));
+      let files = out.files.map((file) => file.file).sort();
+      assert.deepEqual(files, ["src/added.js", "src/app.js"]);
+    });
+
     it("outputs hunk summaries with --json --summary", () => {
       writeFile(
         "src/app.js",
@@ -320,7 +359,7 @@ describe("git-patch integration", () => {
         fakeGit,
         [
           "#!/bin/sh",
-          'if [ \"$1\" = \"diff\" ]; then',
+          'if [ "$1" = "diff" ]; then',
           "cat <<'EOF'",
           "diff --git a/demo.js b/demo.js",
           "index 1111111..2222222 100644",
@@ -332,7 +371,10 @@ describe("git-patch integration", () => {
           "EOF",
           "exit 0",
           "fi",
-          'echo \"unsupported command\" >&2',
+          'if [ "$1" = "ls-files" ]; then',
+          "exit 0",
+          "fi",
+          'echo "unsupported command" >&2',
           "exit 1",
           "",
         ].join("\n"),
@@ -346,6 +388,78 @@ describe("git-patch integration", () => {
         },
       });
       assert.match(out, /function demo\(\)/);
+    });
+
+    it("surfaces unexpected untracked-diff failures", () => {
+      let fakeBin = join(tmp, "fake-bin-fail");
+      mkdirSync(fakeBin, { recursive: true });
+
+      let fakeGit = join(fakeBin, "git");
+      writeFileSync(
+        fakeGit,
+        [
+          "#!/bin/sh",
+          'if [ "$1" = "diff" ] && [ "$2" = "--no-index" ]; then',
+          'echo "no-index failure" >&2',
+          "exit 2",
+          "fi",
+          'if [ "$1" = "diff" ]; then',
+          "exit 0",
+          "fi",
+          'if [ "$1" = "ls-files" ]; then',
+          'echo "src/new-file.js"',
+          "exit 0",
+          "fi",
+          'echo "unsupported command" >&2',
+          "exit 1",
+          "",
+        ].join("\n"),
+      );
+      chmodSync(fakeGit, 0o755);
+
+      let result = gpResult("list", {
+        env: {
+          ...process.env,
+          PATH: `${fakeBin}:${process.env.PATH}`,
+        },
+      });
+      assert.equal(result.status, 1);
+      assert.match(result.stderr, /no-index failure/);
+    });
+
+    it("ignores empty untracked diff output", () => {
+      let fakeBin = join(tmp, "fake-bin-empty");
+      mkdirSync(fakeBin, { recursive: true });
+
+      let fakeGit = join(fakeBin, "git");
+      writeFileSync(
+        fakeGit,
+        [
+          "#!/bin/sh",
+          'if [ "$1" = "diff" ] && [ "$2" = "--no-index" ]; then',
+          "exit 1",
+          "fi",
+          'if [ "$1" = "diff" ]; then',
+          "exit 0",
+          "fi",
+          'if [ "$1" = "ls-files" ]; then',
+          'echo "src/new-file.js"',
+          "exit 0",
+          "fi",
+          'echo "unsupported command" >&2',
+          "exit 1",
+          "",
+        ].join("\n"),
+      );
+      chmodSync(fakeGit, 0o755);
+
+      let out = gp("list", {
+        env: {
+          ...process.env,
+          PATH: `${fakeBin}:${process.env.PATH}`,
+        },
+      });
+      assert.equal(out, "No unstaged changes.");
     });
   });
 
@@ -724,6 +838,19 @@ describe("git-patch integration", () => {
       let stagedNames = git("diff --cached --name-status");
       assert.equal(stagedNames, "D\tsrc/utils.js");
       assert.doesNotMatch(stagedNames, /dev\/null/);
+    });
+
+    it("stages untracked files without intent-to-add", () => {
+      writeFile(
+        "src/new-stage.js",
+        ['module.exports = "new";', "module.exports += '!';", ""].join("\n"),
+      );
+
+      gp("stage 1");
+
+      let stagedNames = git("diff --cached --name-status");
+      assert.equal(stagedNames, "A\tsrc/new-stage.js");
+      assert.equal(gp("list"), "No unstaged changes.");
     });
   });
 

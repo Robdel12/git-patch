@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { parseDiff } from "../lib/diff-parser.js";
-import { getRoot } from "../lib/git.js";
+import { getDiff, getRoot } from "../lib/git.js";
 import { buildPatchFromHunks, buildPatchFromLines } from "../lib/patch-builder.js";
 import { parseSelector } from "../lib/selector.js";
 
@@ -137,5 +137,10 @@ describe("coverage edges", () => {
   it("returns the current git root", () => {
     let root = getRoot();
     assert.equal(root, process.cwd());
+  });
+
+  it("allows includeUntracked option with staged diffs", () => {
+    let out = getDiff({ staged: true, includeUntracked: true });
+    assert.equal(typeof out, "string");
   });
 });
